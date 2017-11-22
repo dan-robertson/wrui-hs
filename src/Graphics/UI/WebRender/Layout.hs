@@ -48,7 +48,8 @@ module Graphics.UI.WebRender.Layout
   , flowr
   ) where
 
-import Graphics.Rendering.WebRender (Rect(..), Colour, Builder, spanWidth, MouseState)
+import Graphics.Rendering.WebRender ( Rect(..), Colour, Builder, spanWidth, MouseState
+                                    , Font, FontSize, FontFaceDescription)
 import qualified Graphics.Rendering.WebRender as WR
 import qualified Data.Sequence as S
 import qualified Data.Vector.Generic as V (toList)
@@ -97,19 +98,22 @@ border = curry Border
 instance Layout Border where
   layout r (Border (br, bs)) = withoutEvent $ WR.addBorder r br bs
 
-newtype Text' = Text' (Colour, String)
-text' = curry Text'
+newtype Text' = Text' (FontFaceDescription, FontSize, Colour, String)
+text' desc size col str = Text' (desc,size,col,str)
 instance Layout Text' where
-  layout r (Text' (c,s)) = withoutEvent $ WR.addText' r (0,20) c s
-newtype Text = Text (Align, Align, Bool, Colour, [String])
-text :: Align -> Align -> Bool -> Colour -> String -> Text
-text halign valign wrap colour s = Text (halign,valign,wrap,colour,lines s)
-text_ :: Align -> Align -> Bool -> Colour -> [String] -> Text
-text_ halign valign wrap colour s = Text (halign,valign,wrap,colour,s)
+  layout r (Text' (d,z,c,s)) = withoutEvent $ WR.getFont d z >>= \f -> WR.addText' r (0,20) f c s
+newtype Text = Text (Align, Align, Bool, FontFaceDescription, FontSize, Colour, [String])
+text :: Align -> Align -> Bool -> FontFaceDescription -> FontSize -> Colour -> String -> Text
+text halign valign wrap description size colour s =
+  Text (halign,valign,wrap,description,size,colour,lines s)
+text_ :: Align -> Align -> Bool -> FontFaceDescription -> FontSize -> Colour -> [String] -> Text
+text_ halign valign wrap description size colour s =
+  Text (halign,valign,wrap,description,size,colour,s)
 -- function takes height and returns y-offset
-wrapText :: Align -> Float -> (Float -> Float) -> String -> Builder (Float, WR.LaidOutText)
-wrapText a w f s = do
-  shaped <- WR.shapeText s
+wrapText :: Font -> Float -> Align -> Float ->
+  (Float -> Float) -> String -> Builder (Float, WR.LaidOutText)
+wrapText ft sz a w f s = do
+  shaped <- WR.shapeText' ft s
   let (height,laidOut) = WR.layoutText' layout shaped
       layout vec = let l = V.toList vec
                        lines _ [] [] = []
@@ -127,27 +131,29 @@ wrapText a w f s = do
                                                End -> w-width
                                                Centre -> (w-width)/2 in 
                                        init $ scanl (+) s line 
-                       yoffset = 20 + f (30*fromIntegral (length lns)) in
-                     (30*fromIntegral (length lns),
+                       yoffset = sz + f ((3/2)*sz*fromIntegral (length lns)) in
+                     ((3/2)*sz*fromIntegral (length lns),
                       concat $ zipWith (\line y -> fmap (\x -> (x,y)) (offset line)) 
-                       lns [yoffset,yoffset+30..])
+                       lns [yoffset,yoffset+(sz*3/2)..])
   return (height, laidOut)
 instance Layout Text where
   -- for wrapping text vertically aligned to the top, we can give up early
-  layout r (Text (ha,Start,True,c,l)) = withoutEvent $ shapelines r l where
+  layout r (Text (ha,Start,True,d,s,c,l)) = withoutEvent $ shapelines r l where
     shapelines _ [] = return ()
     shapelines (Rect x y w h) (l:ls) 
       | h <= 0 = return ()
       | True   = do
-          (height, laidOut) <- wrapText ha w (const 0) l
+          font <- WR.getFont d s
+          (height, laidOut) <- wrapText font s ha w (const 0) l
           WR.addText (Rect x y w h) c laidOut >> shapelines (Rect x (y+height) w (h-height)) ls
   -- for wrapping text aligned to the bottom we can give up early
-  layout r@(Rect _ y w h) (Text (ha,End,True,c,l)) = 
+  layout r@(Rect _ y w h) (Text (ha,End,True,d,s,c,l)) = 
     withoutEvent $ shapelines (h) (reverse l) where
     shapelines _ [] = return ()
     shapelines bot _ | bot <= 0 = return ()
     shapelines bot (l:ls) = do
-      (height, laidOut) <- wrapText ha w (bot -) l
+      font <- WR.getFont d s
+      (height, laidOut) <- wrapText font s ha w (bot -) l
       WR.addText r c laidOut >> shapelines (bot-height) ls
       
   -- TODO: centre valign
@@ -155,22 +161,26 @@ instance Layout Text where
 
   -- we layout nonwrapping left-aligned text by puttting lines into flows and
   -- calling layout
-  layout r@(Rect _ _ w _) (Text (Start,v,False,c,l)) = ignoreEvent $ case v of
-    Start -> layout r $ flowt 30 `containing_` (text' c <$> l)
-    End -> layout r $ flowb 30 `containing_` (text' c <$> l)
-    Centre -> let h' = 30 * fromIntegral (length l) in
-      layout r $ centre (w,h') $ flowt 30 `containing_` (text' c <$> l)
+  layout r@(Rect _ _ w _) (Text (Start,v,False,d,s,c,l)) = ignoreEvent $ case v of
+    Start -> layout r $ flowt (s*3/2) `containing_` (text' d s c <$> l)
+    End -> layout r $ flowb (s*3/2) `containing_` (text' d s c <$> l)
+    Centre -> let h' = (3/2) * s * fromIntegral (length l) in
+      layout r $ centre (w,h') $ flowt (s*3/2) `containing_` (text' d s c <$> l)
   -- we layout nonwrapping text with other alignment by shaping to determine width and shift
-  layout r@(Rect _ _ w' h') (Text (ha,va,False,c,l)) = withoutEvent $ do
-    shapedLines <- mapM WR.shapeText l
+  layout r@(Rect _ _ w' h') (Text (ha,va,False,d,s,c,l)) = withoutEvent $ do
+    font <- WR.getFont d s
+    shapedLines <- mapM (WR.shapeText' font) l
     let layoutLine baseline s = WR.layoutText (layout baseline) s
         layout b vec = let l = V.toList vec
                            width = sum (spanWidth <$> l)
                            offset = case ha of End -> w' - width; Centre -> (w' - width)/2 in
                          scanl (\(x,y) i -> (x+spanWidth i,y)) (offset,b) l
         n = fromIntegral $ length shapedLines
-        offsets' = [20,20+30..]
-        offsets = (case va of Start -> id; End -> (h' - 30*n+); Centre -> (0.5*(h'-30*n)+)) <$> offsets'
+        offsets' = [s,s+(s*3/2)..]
+        offsets = (case va of 
+                     Start -> id
+                     End -> (h' - (3/2)*s*n+)
+                     Centre -> (0.5*(h'-(3/2)*s*n)+)) <$> offsets'
         lines = zipWith layoutLine offsets shapedLines
     mapM_ (WR.addText r c) lines
 

@@ -11,6 +11,7 @@ import Control.Concurrent.STM
 import System.Environment (getArgs)
 import Data.Array.IO
 import Data.Array.MArray
+import Data.List (isPrefixOf)
 
 -- Wilson's algorithm
 data Point = P Int Int deriving (Show, Eq, Ord)
@@ -132,24 +133,37 @@ window n l = case splitAt n l of
 
 mean x = sum x / fromIntegral (length x)
 
-drawFps :: (MArray a Float m) => Rect -> a Int Float -> m (Builder ())
-drawFps (Rect x y w h) arr = do
+drawFps :: (MArray a Float m) => Font -> Builder Rect -> a Int Float -> m (Builder ())
+drawFps f b arr = do
   bounds <- getBounds arr
-  let width = 4 * w / fromIntegral (rangeSize bounds)
   let col = Colour 0 1 1 0.8
   dat <- sequence [mean <$> mapM (readArray arr) x | x <- window 4 $ range bounds]
-  let bars = sequence_ [addRect (Rect (x + i * width) (y+h-height) width height) col 
-                       | (fps,i) <- zip dat [1..],
-                         let height = (min h (h * fps / 60))]
-  let fps = fromIntegral (round (last dat * 10)) / 10 :: Float
-  return $ addRect (Rect x y w h) (Colour 0.5 0.5 0.5 0.7) >> bars >>
-    addText' (Rect x y w h) (w/2-30,h-10) red (show fps ++ "fps")
+  return $ do
+    (Rect x y w h) <- b
+    let width = 4 * w / fromIntegral (rangeSize bounds)
+    addRect (Rect x y w h) (Colour 0.5 0.5 0.5 0.7)
+    sequence_ [addRect (Rect (x + i * width) (y+h-height) width height) col 
+              | (fps,i) <- zip dat [1..],
+                let height = (min h (h * fps / 60))]
+    let fps = fromIntegral (round (last dat * 10)) / 10 :: Float
+    addText' (Rect x y w h) (w/2-30,h-10) f red (show fps ++ "fps")
 
 updateFps :: MArray a Float m => a Int Float -> Float -> m ()
 updateFps arr f = do
   r <- range <$> getBounds arr
   sequence_ [readArray arr i >>= writeArray arr j | (i,j) <- zip (tail r) r]
   writeArray arr (last r) f
+
+data AfterEvent = NextFrame | Wait | NextFrame' | Close
+instance Monoid AfterEvent where
+  mempty = NextFrame
+  Close `mappend` _ = Close
+  _ `mappend` Close = Close
+  NextFrame' `mappend` _  = NextFrame'
+  _ `mappend` NextFrame'  = NextFrame'
+  Wait `mappend` _  = Wait
+  _ `mappend` Wait  = Wait
+  _ `mappend` _     = NextFrame
 
 main :: IO ()
 main = do
@@ -161,11 +175,30 @@ main = do
   let name = "Wilson's algorithm " ++ show width ++ "×" ++ show width
   let b = board (P 1 1) (P width width)
   let start = P (width `div` 2) (width `div` 2)
+  win <- newWindow name size
   stateVar <- newTVarIO $ State b (M.singleton start start) []
   forkIO $ mazeThread stateVar
   fpsHistory <- newArray (1,1200) 0 :: IO (IOArray Int Float)
   time <- newTVarIO $ Nothing
-  let render (w,h) = do
+  (font,_) <- renderGetEvents win $ addRect (Rect 0 0 2000 2000) black >>
+    getFont (FontFace "DejaVu Sans" Upright normalWeight NormalStretch) 20
+  let handleEvent solved ev = if "(MOUSEINPUT RELEASED LEFT" `isPrefixOf` ev
+        then (atomically $ writeTVar stateVar $
+             State b (M.singleton start start) [])
+             >> return NextFrame'
+        else if ev == "CLOSED" || ev == "(KEYBOARDINPUT PRESSED 9 ESCAPE)"
+        then return Close
+        else if "(RESIZED" `isPrefixOf` ev
+        then return NextFrame'
+        else do
+        if solved
+          then return Wait
+          else return NextFrame
+  let doAction _ NextFrame  = loop
+      doAction _ NextFrame' = loop
+      doAction _ Close      = closeWindow win
+      doAction s Wait       = waitEvent win >>= handleEvent s >>= doAction s
+      loop = do
         ctime <- getTime Monotonic
         frameTime <- atomically $ do
           t <- readTVar time
@@ -174,11 +207,15 @@ main = do
           return $ case t of Nothing -> 1; Just (TimeSpec s' ns') -> fromIntegral (s-s') + (fromIntegral (ns-ns') * 1e-9)
         let fps = 1/frameTime
         updateFps fpsHistory fps
-        fpsDraw <- drawFps (Rect (w/2-150) 0 300 30) fpsHistory
+        fpsDraw <- drawFps font ((\w -> Rect (w/2-150) 0 300 30) <$> getWidth) fpsHistory
         state <- readTVarIO stateVar
-        return $ drawState (floor w, floor h) state >> fpsDraw
-  let click a (Released LeftB) = atomically $ writeTVar stateVar $
-                                 State b (M.singleton start start) []
-      click _ _ = return ()
-  newWindow name size render click
+        (_,events) <- renderGetEvents win $ do
+          (w,h) <- getSize
+          addRect (Rect 0 0 w h) black
+          drawState (floor w, floor h) state
+          fpsDraw
+        let s = solved state
+        action <- mconcat <$> mapM (handleEvent s) events
+        doAction s action
+  loop
 
