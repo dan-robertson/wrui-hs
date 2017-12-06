@@ -7,7 +7,7 @@ import Control.Concurrent.STM
 
 type Stack = [Float]
 data State = State Stack (Maybe String)
-
+{-
 finishInput :: State -> State
 finishInput s@(State _ Nothing) = s
 finishInput (State s (Just input)) = State (read input : s) Nothing
@@ -116,3 +116,5 @@ main = do
   sv <- newTVarIO (State [] Nothing)
   ev <- newTVarIO noEvent
   newWindow "calc" (300,600) (render sv ev) (event ev)
+-}
+main = return ()

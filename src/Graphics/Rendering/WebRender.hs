@@ -1,6 +1,6 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 
-module Graphics.Rendering.WebRender 
+module Graphics.Rendering.WebRender
   ( newWindow
   , closeWindow
   , Event
@@ -15,10 +15,15 @@ module Graphics.Rendering.WebRender
   , getHeight
   , MouseButton(..)
   , MouseState(..)
+
+  , Clip(..)
+  , Tag
+
   , Rect(Rect)
   , Colour(Colour)
 
   , addRect
+  , addRect'
 
   , BorderStyle(..)
   , BorderSide(..)
@@ -29,6 +34,7 @@ module Graphics.Rendering.WebRender
   , rounded
   , rounded'
   , addBorder
+  , addBorder'
 
   , Font
   , FontFamily
@@ -42,7 +48,8 @@ module Graphics.Rendering.WebRender
   , FontFaceDescription(..)
   , getFont
 
-  , addText'
+  , addText_
+  , addText_'
 
   , ShapedRunInfo(..)
   , ShapedRunPosition
@@ -53,6 +60,7 @@ module Graphics.Rendering.WebRender
   , layoutText
   , layoutText'
   , addText
+  , addText'
 
   , black
   , red
@@ -62,7 +70,7 @@ module Graphics.Rendering.WebRender
   ) where
 
 import Control.Concurrent.STM
-import Data.Word (Word32, Word16, Word8)
+import Data.Word (Word64, Word32, Word16, Word8)
 import Data.Int (Int32)
 import Foreign.C.String (CString(..), newCString, peekCString)
 import Foreign.C.Types (CInt(..), CSize(..))
@@ -132,8 +140,78 @@ foreign import ccall unsafe "display_list_builder_build"
 foreign import ccall unsafe "display_list_builder_push_rect" 
   display_list_builder_push_rect :: DisplayListBuilder -> Float -> Float -> Float -> Float
     -> Float -> Float -> Float -> Float -> IO ()
+foreign import ccall unsafe "display_list_builder_push_rect_c" 
+  display_list_builder_push_rect_c :: DisplayListBuilder -> Float -> Float -> Float -> Float
+    -> Float -> Float -> Float -> Float
+    -> Float -> Float -> Float -> Float -> IO ()
+foreign import ccall unsafe "display_list_builder_push_rect_cc" 
+  display_list_builder_push_rect_cc :: DisplayListBuilder -> Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float
+    -> Float -> Float -> Float -> Float
+    -> Float -> Float -> Float -> Float -> IO ()
+foreign import ccall unsafe "display_list_builder_push_rect_t" 
+  display_list_builder_push_rect_t :: DisplayListBuilder -> Word64 -> Word8
+    -> Float -> Float -> Float -> Float
+    -> Float -> Float -> Float -> Float -> IO ()
+foreign import ccall unsafe "display_list_builder_push_rect_tc" 
+  display_list_builder_push_rect_tc :: DisplayListBuilder -> Word64 -> Word8
+    -> Float -> Float -> Float -> Float
+    -> Float -> Float -> Float -> Float
+    -> Float -> Float -> Float -> Float -> IO ()
+foreign import ccall unsafe "display_list_builder_push_rect_tcc" 
+  display_list_builder_push_rect_tcc :: DisplayListBuilder -> Word64 -> Word8
+    -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float
+    -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float
+    -> Float -> Float -> Float -> Float
+    -> Float -> Float -> Float -> Float -> IO ()
 foreign import ccall unsafe "display_list_builder_push_border_n"
   display_list_builder_push_border_n :: DisplayListBuilder ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> 
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> IO ()
+foreign import ccall unsafe "display_list_builder_push_border_nc"
+  display_list_builder_push_border_nc :: DisplayListBuilder -> Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> 
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> IO ()
+foreign import ccall unsafe "display_list_builder_push_border_ncc"
+  display_list_builder_push_border_ncc :: DisplayListBuilder -> Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> 
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> IO ()
+foreign import ccall unsafe "display_list_builder_push_border_nt"
+  display_list_builder_push_border_nt :: DisplayListBuilder -> Word64 -> Word8 ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> 
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> IO ()
+foreign import ccall unsafe "display_list_builder_push_border_ntc"
+  display_list_builder_push_border_ntc :: DisplayListBuilder -> Word64 -> Word8 ->
+    Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> 
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> CInt ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> IO ()
+foreign import ccall unsafe "display_list_builder_push_border_ntcc"
+  display_list_builder_push_border_ntcc :: DisplayListBuilder -> Word64 -> Word8 ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float ->
     Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> 
     Float -> Float -> Float -> Float -> CInt ->
     Float -> Float -> Float -> Float -> CInt ->
@@ -147,6 +225,35 @@ foreign import ccall unsafe "&wrui_free_font"
   free_font :: FunPtr (FontP -> IO ())
 foreign import ccall unsafe "display_list_builder_push_text"
   display_list_builder_push_text :: DisplayListBuilder ->
+    Float -> Float -> Float -> Float -> FontP ->
+    Float -> Float -> Float -> Float -> Float -> Float ->
+    CString -> IO ()
+foreign import ccall unsafe "display_list_builder_push_text_c"
+  display_list_builder_push_text_c :: DisplayListBuilder -> Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float -> FontP ->
+    Float -> Float -> Float -> Float -> Float -> Float ->
+    CString -> IO ()
+foreign import ccall unsafe "display_list_builder_push_text_cc"
+  display_list_builder_push_text_cc :: DisplayListBuilder -> Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float -> FontP ->
+    Float -> Float -> Float -> Float -> Float -> Float ->
+    CString -> IO ()
+foreign import ccall unsafe "display_list_builder_push_text_t"
+  display_list_builder_push_text_t :: DisplayListBuilder -> Word64 -> Word8 ->
+    Float -> Float -> Float -> Float -> FontP ->
+    Float -> Float -> Float -> Float -> Float -> Float ->
+    CString -> IO ()
+foreign import ccall unsafe "display_list_builder_push_text_tc"
+  display_list_builder_push_text_tc :: DisplayListBuilder -> Word64 -> Word8 ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> FontP ->
+    Float -> Float -> Float -> Float -> Float -> Float ->
+    CString -> IO ()
+foreign import ccall unsafe "display_list_builder_push_text_tcc"
+  display_list_builder_push_text_tcc :: DisplayListBuilder -> Word64 -> Word8 ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float ->
     Float -> Float -> Float -> Float -> FontP ->
     Float -> Float -> Float -> Float -> Float -> Float ->
     CString -> IO ()
@@ -164,6 +271,33 @@ foreign import ccall unsafe "display_list_builder_push_shaped_text"
   display_list_builder_push_shaped_text :: DisplayListBuilder ->
     Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> 
     ShapedTextS -> ShapedRunPositionS -> CSize -> IO ()
+foreign import ccall unsafe "display_list_builder_push_shaped_text_c"
+  display_list_builder_push_shaped_text_c :: DisplayListBuilder ->
+    Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> 
+    ShapedTextS -> ShapedRunPositionS -> CSize -> IO ()
+foreign import ccall unsafe "display_list_builder_push_shaped_text_cc"
+  display_list_builder_push_shaped_text_cc :: DisplayListBuilder ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> 
+    ShapedTextS -> ShapedRunPositionS -> CSize -> IO ()
+foreign import ccall unsafe "display_list_builder_push_shaped_text_t"
+  display_list_builder_push_shaped_text_t :: DisplayListBuilder -> Word64 -> Word8 ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> 
+    ShapedTextS -> ShapedRunPositionS -> CSize -> IO ()
+foreign import ccall unsafe "display_list_builder_push_shaped_text_tc"
+  display_list_builder_push_shaped_text_tc :: DisplayListBuilder -> Word64 -> Word8 ->
+    Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> 
+    ShapedTextS -> ShapedRunPositionS -> CSize -> IO ()
+foreign import ccall unsafe "display_list_builder_push_shaped_text_tcc"
+  display_list_builder_push_shaped_text_tcc :: DisplayListBuilder -> Word64 -> Word8 ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float ->
+    Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> 
+    ShapedTextS -> ShapedRunPositionS -> CSize -> IO ()
+
 
 -- | This represents a sequence of instructions to build a display
 -- list. Later objects are drawn on top of earlier ones
@@ -308,21 +442,44 @@ simpleBorder :: Float -> BorderStyle -> Colour -> BorderSides
 simpleBorder w s c = BorderSides side side side side where
   side = BorderSide w c s
 
+data Clip = NoClip | SimpleClip Rect | ComplexClip Rect (Rect, BorderRadius)
+type Tag  = (Word64, Word8)
+
+withClip f fc fcc ft ftc ftcc = \clip tag x ->
+  case (clip, tag) of
+    (NoClip, Nothing) -> f x
+    (SimpleClip r, Nothing) -> rect r $ fc x
+    (ComplexClip r (r2, BorderRadius (tl1,tl2) (tr1,tr2) (bl1,bl2) (br1,br2)), Nothing) ->
+      (rect r2 $ rect r $ fcc x) tl1 tl2 tr1 tr2 bl1 bl2 br1 br2
+    (NoClip, Just (t1,t2)) -> ft x t1 t2
+    (SimpleClip r, Just (t1,t2)) -> rect r $ ftc x t1 t2
+    (ComplexClip r (r2, BorderRadius (tl1,tl2) (tr1,tr2) (bl1,bl2) (br1,br2)), Just (t1,t2)) ->
+      (rect r2 $ rect r $ ftcc x t1 t2) tl1 tl2 tr1 tr2 bl1 bl2 br1 br2
+
 -- | Draw a rectangle in a specified colour
-addRect :: Rect -> Colour -> Builder ()
-addRect r c = Builder $ \(x,_,_) -> colour c $ rect r $ display_list_builder_push_rect x
+addRect :: Clip -> Maybe Tag -> Rect -> Colour -> Builder ()
+addRect clip tag r c = Builder $ \(x,_,_) -> colour c $ rect r $ f x where
+  f = withClip display_list_builder_push_rect display_list_builder_push_rect_c
+      display_list_builder_push_rect_cc display_list_builder_push_rect_t
+      display_list_builder_push_rect_tc display_list_builder_push_rect_tcc
+      clip tag
+addRect' = addRect NoClip Nothing
 
 -- | Draw a border for a specified (rounded) rectangle with styles specified for each side.
-addBorder :: Rect -> BorderRadius -> BorderSides -> Builder ()
-addBorder r br bs = Builder $ \(x,_,_) ->
-  radii br $ sides $ widths $ rect r $ display_list_builder_push_border_n x where
+addBorder :: Clip -> Maybe Tag -> Rect -> BorderRadius -> BorderSides -> Builder ()
+addBorder clip tag r br bs = Builder $ \(x,_,_) ->
+  radii br $ sides $ widths $ rect r $ f x where
   widths f = 
     let BorderSides (BorderSide l _ _) (BorderSide t _ _) (BorderSide r _ _) (BorderSide b _ _) = bs in
       f l t r b
   sides f = side (bottom bs) $ side (right bs) $ side (top bs) $ side (left bs) $ f
   side (BorderSide _ c s) f = (colour c $ f) (BS.toCInt s)
   radii (BorderRadius (tlw,tlh) (trw,trh) (blw,blh) (brw,brh)) f = f tlw tlh trw trh blw blh brw brh
-
+  f = withClip display_list_builder_push_border_n display_list_builder_push_border_nc
+      display_list_builder_push_border_ncc display_list_builder_push_border_nt
+      display_list_builder_push_border_ntc display_list_builder_push_border_ntcc
+      clip tag
+addBorder' = addBorder NoClip Nothing
 
 type FontFamily = String
 type FontSize = Float
@@ -360,12 +517,17 @@ getFont (FontFace fam ital wght strtch) size = let
 
 -- | Draw some text inside a rectangle. The text is given the (local)
 -- position of the first character (with the y-coordinate being the baseline).
-addText' :: Rect -> (Float, Float) -> Font -> Colour -> String -> Builder ()
-addText' r@(Rect x y _ _) (ox, oy) font c text = Builder $ \(d,_,_) -> do
+addText_ :: Clip -> Maybe Tag -> Rect -> (Float, Float) -> Font -> Colour -> String -> Builder ()
+addText_ clip tag r@(Rect x y _ _) (ox, oy) font c text = Builder $ \(d,_,_) -> do
   str <- newCString text
   withForeignPtr font $ \font -> do
-    (colour c $ (rect r $ display_list_builder_push_text d) font) (x+ox) (y+oy) str
-  free str
+    (colour c $ (rect r $ f d) font) (x+ox) (y+oy) str
+  free str where
+  f = withClip display_list_builder_push_text display_list_builder_push_text_c
+      display_list_builder_push_text_cc display_list_builder_push_text_t
+      display_list_builder_push_text_tc display_list_builder_push_text_tcc
+      clip tag
+addText_' = addText_ NoClip Nothing
 
 shapeWidthsFree :: Ptr ShapedRunInfo -> CSize -> IO ()
 shapeWidthsFree p len = shaped_text_widths_free p len
@@ -398,11 +560,16 @@ layoutText' f (ShapedText s info) = LaidOutText s <$>
 -- | Add some text which has been laid out. The positions should be
 -- relative to the top left corner of 'rect' and position the baseline
 -- at the left-edge of each slice
-addText :: Rect -> Colour -> LaidOutText -> Builder ()
-addText r c (LaidOutText s v) = Builder $ \(d,_,_) -> 
+addText :: Clip -> Maybe Tag -> Rect -> Colour -> LaidOutText -> Builder ()
+addText clip tag r c (LaidOutText s v) = Builder $ \(d,_,_) -> 
   withForeignPtr s $ \s ->
   V.unsafeWith v $ \v' -> do
-  (colour c $ rect r $ display_list_builder_push_shaped_text d) s v' (fromIntegral $ V.length v)
+  (colour c $ rect r $ display_list_builder_push_shaped_text d) s v' (fromIntegral $ V.length v) where
+  f = withClip display_list_builder_push_shaped_text display_list_builder_push_shaped_text_c
+      display_list_builder_push_shaped_text_cc display_list_builder_push_shaped_text_t
+      display_list_builder_push_shaped_text_tc display_list_builder_push_shaped_text_tcc
+      clip tag
+addText' = addText NoClip Nothing
 
 -- | Some simple colours
 black, red, green, blue, white :: Colour

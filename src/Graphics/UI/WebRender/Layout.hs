@@ -91,17 +91,17 @@ instance Layout Blank where
 newtype Coloured = Coloured Colour
 coloured = Coloured
 instance Layout Coloured where
-  layout r (Coloured c) = withoutEvent $ WR.addRect r c
+  layout r (Coloured c) = withoutEvent $ WR.addRect' r c
 
 newtype Border = Border (WR.BorderRadius, WR.BorderSides)
 border = curry Border
 instance Layout Border where
-  layout r (Border (br, bs)) = withoutEvent $ WR.addBorder r br bs
+  layout r (Border (br, bs)) = withoutEvent $ WR.addBorder' r br bs
 
 newtype Text' = Text' (FontFaceDescription, FontSize, Colour, String)
 text' desc size col str = Text' (desc,size,col,str)
 instance Layout Text' where
-  layout r (Text' (d,z,c,s)) = withoutEvent $ WR.getFont d z >>= \f -> WR.addText' r (0,20) f c s
+  layout r (Text' (d,z,c,s)) = withoutEvent $ WR.getFont d z >>= \f -> WR.addText_' r (0,20) f c s
 newtype Text = Text (Align, Align, Bool, FontFaceDescription, FontSize, Colour, [String])
 text :: Align -> Align -> Bool -> FontFaceDescription -> FontSize -> Colour -> String -> Text
 text halign valign wrap description size colour s =
@@ -145,7 +145,7 @@ instance Layout Text where
       | True   = do
           font <- WR.getFont d s
           (height, laidOut) <- wrapText font s ha w (const 0) l
-          WR.addText (Rect x y w h) c laidOut >> shapelines (Rect x (y+height) w (h-height)) ls
+          WR.addText' (Rect x y w h) c laidOut >> shapelines (Rect x (y+height) w (h-height)) ls
   -- for wrapping text aligned to the bottom we can give up early
   layout r@(Rect _ y w h) (Text (ha,End,True,d,s,c,l)) = 
     withoutEvent $ shapelines (h) (reverse l) where
@@ -154,7 +154,7 @@ instance Layout Text where
     shapelines bot (l:ls) = do
       font <- WR.getFont d s
       (height, laidOut) <- wrapText font s ha w (bot -) l
-      WR.addText r c laidOut >> shapelines (bot-height) ls
+      WR.addText' r c laidOut >> shapelines (bot-height) ls
       
   -- TODO: centre valign
 
@@ -182,7 +182,7 @@ instance Layout Text where
                      End -> (h' - (3/2)*s*n+)
                      Centre -> (0.5*(h'-(3/2)*s*n)+)) <$> offsets'
         lines = zipWith layoutLine offsets shapedLines
-    mapM_ (WR.addText r c) lines
+    mapM_ (WR.addText' r c) lines
 
 data Align = Start -- ^ left or top
            | End -- ^ right or bottom

@@ -93,7 +93,7 @@ drawState (w,h) (State (Board (P xn yn) (P xx yx)) m ps) = drawTree baseCol m >>
   oy y = fromIntegral (y - yn)
   -- | given a point and the one before it in the tree, draw the point
   drawPoint :: Colour -> Point -> Point -> Builder ()
-  drawPoint c (P x y) (P x' y') = addRect (Rect px py pw ph) c where
+  drawPoint c (P x y) (P x' y') = addRect' (Rect px py pw ph) c where
     px = pointXSep * (ox x) - if x' == x - 1 then 1 else 0
     py = pointYSep * (oy y) - if y' == y - 1 then 1 else 0
     pw = if abs (x' - x) == 1 then pointXSep else pointWidth
@@ -141,12 +141,12 @@ drawFps f b arr = do
   return $ do
     (Rect x y w h) <- b
     let width = 4 * w / fromIntegral (rangeSize bounds)
-    addRect (Rect x y w h) (Colour 0.5 0.5 0.5 0.7)
-    sequence_ [addRect (Rect (x + i * width) (y+h-height) width height) col 
+    addRect' (Rect x y w h) (Colour 0.5 0.5 0.5 0.7)
+    sequence_ [addRect' (Rect (x + i * width) (y+h-height) width height) col 
               | (fps,i) <- zip dat [1..],
                 let height = (min h (h * fps / 60))]
     let fps = fromIntegral (round (last dat * 10)) / 10 :: Float
-    addText' (Rect x y w h) (w/2-30,h-10) f red (show fps ++ "fps")
+    addText_' (Rect x y w h) (w/2-30,h-10) f red (show fps ++ "fps")
 
 updateFps :: MArray a Float m => a Int Float -> Float -> m ()
 updateFps arr f = do
@@ -177,10 +177,11 @@ main = do
   let start = P (width `div` 2) (width `div` 2)
   win <- newWindow name size
   stateVar <- newTVarIO $ State b (M.singleton start start) []
+  solvedVar <- newTVarIO False
   forkIO $ mazeThread stateVar
   fpsHistory <- newArray (1,1200) 0 :: IO (IOArray Int Float)
   time <- newTVarIO $ Nothing
-  (font,_) <- renderGetEvents win $ addRect (Rect 0 0 2000 2000) black >>
+  (font,_) <- renderGetEvents win $ addRect' (Rect 0 0 5000 5000) black >>
     getFont (FontFace "DejaVu Sans" Upright normalWeight NormalStretch) 20
   let handleEvent solved ev = if "(MOUSEINPUT RELEASED LEFT" `isPrefixOf` ev
         then (atomically $ writeTVar stateVar $
@@ -211,11 +212,15 @@ main = do
         state <- readTVarIO stateVar
         (_,events) <- renderGetEvents win $ do
           (w,h) <- getSize
-          addRect (Rect 0 0 w h) black
+          addRect' (Rect 0 0 w h) black
           drawState (floor w, floor h) state
           fpsDraw
-        let s = solved state
-        action <- mconcat <$> mapM (handleEvent s) events
+        let s' = solved state
+        sprev <- readTVarIO solvedVar
+        let s = s' && sprev
+        atomically $ writeTVar solvedVar s'
+        -- we pass a dummy event so that we will stop redrawing when done
+        action <- mconcat <$> mapM (handleEvent s) ("":events)
         doAction s action
   loop
 
